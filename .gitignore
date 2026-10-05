@@ -1,0 +1,13 @@
+.env
+node_modules/
+dist/
+__pycache__/
+*.pyc
+.venv/
+venv/
+.DS_Store
+# generated media - keep large files OUT of git
+uploads/*
+outputs/*
+!uploads/.gitkeep
+!outputs/.gitkeep
