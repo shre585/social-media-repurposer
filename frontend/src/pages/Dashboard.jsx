@@ -38,7 +38,7 @@ export default function Dashboard() {
         <div className="card empty">
           <div className="dz-emoji">📭</div>
           <h3>Nothing here yet</h3>
-          <p className="muted">Upload your first video, podcast or PDF to get started.</p>
+          <p className="muted">Upload your first video or document to get started.</p>
           <Link className="btn primary" to="/">Start a project</Link>
         </div>
       )}

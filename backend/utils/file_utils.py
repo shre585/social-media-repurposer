@@ -14,7 +14,6 @@ from config import settings
 
 EXT_KIND = {
     ".mp4": "video", ".mov": "video", ".mkv": "video", ".webm": "video",
-    ".mp3": "audio", ".wav": "audio", ".m4a": "audio",
     ".pdf": "document", ".docx": "document",
     ".txt": "text", ".md": "text",
 }

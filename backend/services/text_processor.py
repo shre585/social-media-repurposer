@@ -13,7 +13,13 @@ def read_document(path: Path) -> str:
         from docx import Document
 
         doc = Document(str(path))
-        text = "\n\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        parts = []
+        for p in doc.paragraphs:                       # keep Word headings so topics follow the document structure
+            if not p.text.strip():
+                continue
+            style = (p.style.name or "") if p.style is not None else ""
+            parts.append(f"## {p.text.strip()}" if style.lower().startswith(("heading", "title")) else p.text)
+        text = "\n\n".join(parts)
     else:
         raw = path.read_bytes()
         for enc in ("utf-8", "utf-16", "latin-1"):

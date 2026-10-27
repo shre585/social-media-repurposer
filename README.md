@@ -1,6 +1,6 @@
 # ☕ Social Media Repurposer
 
-Turn **one** video, podcast, PDF or blog into a week of posts. Upload a 1-hour Python lecture and get short clips cut to each platform's size, plus captions, hashtags, carousels, an X thread, a blog post and SEO text.
+Turn **one** video, PDF, Word doc or blog into a week of posts. Upload a 1-hour Python lecture and get short clips cut to each platform's size, plus captions, hashtags, carousels, an X thread, a blog post and SEO text.
 
 ```
 React (Vite) ──POST /api/upload──▶ FastAPI ──▶ FFmpeg (extract audio)
@@ -19,12 +19,12 @@ React ◀──────────── polls /api/status, then GET /api/r
 | Mode | Input | What you get |
 |---|---|---|
 | Video | MP4, MOV, MKV, WEBM, YouTube link | Clips per platform (9:16 / 4:5 / 1:1 / 16:9), thumbnails, `.srt` captions, posts |
-| Audio | MP3, WAV, M4A | Audio clip + animated waveform video per platform, posts |
-| Document | PDF, DOCX | Concepts → posts, carousels, thread, blog |
+| Document | PDF, DOCX | One post set per heading / concept, carousels, thread, blog |
 | Text | TXT, MD | Same as document |
 
 ## Features
 
+- **Topic-aware keywords:** a Python lecture is split into *Variables → Data Types → Conditionals → Loops → Functions…*, each with its own keywords (built-in concept lexicon + TF-IDF fallback for any other subject, no API key needed)
 - Smart clip picking: AI importance + speaking energy + scene-change awareness (slide changes, cuts)
 - Cuts never start or stop mid-sentence
 - Auto reframing: blurred-background fit **or** crop-to-fill

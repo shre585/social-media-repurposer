@@ -49,7 +49,7 @@ export default function Home() {
   function pickFile(f) {
     setError("");
     if (!detectKind(f.name)) {
-      setError("That file type isn't supported yet. Try MP4, MOV, MP3, WAV, PDF, DOCX or TXT.");
+      setError("That file type isn't supported yet. Try a video (MP4, MOV, MKV, WEBM) or a document (PDF, DOCX, TXT, MD).");
       return;
     }
     setFile(f);
@@ -79,7 +79,7 @@ export default function Home() {
           <span className="eyebrow"><i>NEW</i> built for busy creators</span>
           <h1>One upload.<br /><span className="grad">Every platform.</span></h1>
           <p className="lead">
-            Drop in a lecture, podcast, PDF or blog. We find the best moments, cut them to size, and write the
+            Drop in a lecture video, PDF, Word doc or blog text. We find the best moments, cut them to size, and write the
             captions, hashtags and threads for each app.
           </p>
           <p className="hand">1 hour of video → a week of posts ↴</p>

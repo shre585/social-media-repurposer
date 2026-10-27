@@ -110,24 +110,6 @@ def cut_video(src: Path, dst: Path, start: float, end: float, spec: dict, info: 
              "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(dst)])
 
 
-def cut_audio(src: Path, dst: Path, start: float, end: float) -> None:
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    run_cmd([settings.FFMPEG_BIN, "-y", "-ss", f"{start:.2f}", "-i", str(src), "-t", f"{end - start:.2f}",
-             "-vn", "-c:a", "libmp3lame", "-b:a", "160k", str(dst)])
-
-
-def make_audiogram(src: Path, dst: Path, start: float, end: float, spec: dict) -> None:
-    """Audio clip -> animated waveform video in the platform's frame size."""
-    W, H, dur = spec["width"], spec["height"], end - start
-    graph = (f"color=c=0x2A1810:s={W}x{H}:d={dur:.2f}[bg];"
-             f"[0:a]showwaves=s={W}x{H // 3}:mode=cline:colors=0xE8D2B0:rate=25,format=yuva420p[w];"
-             f"[bg][w]overlay=0:(main_h-overlay_h)/2,format=yuv420p[v]")
-    dst.parent.mkdir(parents=True, exist_ok=True)
-    run_cmd([settings.FFMPEG_BIN, "-y", "-ss", f"{start:.2f}", "-i", str(src), "-t", f"{dur:.2f}",
-             "-filter_complex", graph, "-map", "[v]", "-map", "0:a", "-c:v", "libx264", "-preset", "veryfast",
-             "-crf", "26", "-c:a", "aac", "-b:a", "128k", "-shortest", "-movflags", "+faststart", str(dst)])
-
-
 def make_thumbnail(src: Path, dst: Path, at: float) -> None:
     dst.parent.mkdir(parents=True, exist_ok=True)
     run_cmd([settings.FFMPEG_BIN, "-y", "-ss", f"{at:.2f}", "-i", str(src), "-frames:v", "1",

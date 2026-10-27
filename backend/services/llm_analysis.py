@@ -3,7 +3,6 @@
 Providers: Anthropic, OpenAI, Gemini. With no API key it falls back to a keyword/density heuristic
 so the whole pipeline still runs (handy for demos and offline development).
 """
-import collections
 import json
 import logging
 import math
@@ -12,6 +11,7 @@ import re
 import httpx
 
 from config import settings
+from services import topic_engine
 
 log = logging.getLogger("llm")
 
@@ -124,10 +124,23 @@ def normalize_topic(t: dict) -> dict:
     }
 
 
+TOPIC_RULES = (
+    "TOPIC RULES (very important):\n"
+    "- Split the content by TEACHING CONCEPT, one topic per distinct concept, in the order it is taught. "
+    "Example for a Python lecture: Variables, Data Types, Conditionals, Loops, Functions, Lists.\n"
+    "- 'topic' must be the concept name (e.g. 'Variables', 'Data Types', 'Functions'), never generic words like "
+    "'Introduction', 'Tutorial', 'Video' or 'Python Course'.\n"
+    "- If the speaker explains a concept and then shows an example, make the example its own topic "
+    "(e.g. 'Variables - example') when it is long enough.\n"
+    "- 'keywords' = 4-6 terms specific to THAT topic only (for 'Variables': variable, assignment, naming rules, "
+    "data stored, reassign). Do not repeat the same keywords across topics, and never use filler words.\n"
+    "- Hashtags must be about the concept (e.g. #PythonVariables) plus the subject (#Python, #Coding).\n")
+
+
 def _prompt_common(opts: dict) -> str:
     return (f"Writing tone: {TONE.get(opts.get('tone'), TONE['educational'])}.\n"
             f"Write titles, hooks, captions and key points in: {LANG.get(opts.get('language'), 'English')}.\n"
-            "Hashtags must be relevant, mixed between broad and niche, and start with #.\n")
+            "Hashtags must be relevant, mixed between broad and niche, and start with #.\n" + TOPIC_RULES)
 
 
 # ------------------------------------------------------------------ media (transcript) analysis
@@ -169,6 +182,7 @@ def analyze_transcript(segments: list[dict], opts: dict) -> dict:
                 keywords += [str(k) for k in data.get("keywords", [])]
                 topics += [normalize_topic(t) for t in data.get("topics", []) if isinstance(t, dict)]
             if topics:
+                _fill_keywords(topics, segments, None)
                 return {"summary": summary, "keywords": list(dict.fromkeys(keywords))[:15],
                         "topics": topics, "provider": settings.llm_provider(), "warning": None}
             raise ValueError("LLM returned no topics")
@@ -181,113 +195,67 @@ def analyze_transcript(segments: list[dict], opts: dict) -> dict:
 
 
 # ------------------------------------------------------------------ document analysis
+def _text_chunks(text: str, limit: int = 30000) -> list[str]:
+    paras, chunks, cur, size = re.split(r"\n\s*\n", text), [], [], 0
+    for p in paras:
+        if size + len(p) > limit and cur:
+            chunks.append("\n\n".join(cur))
+            cur, size = [], 0
+        cur.append(p)
+        size += len(p) + 2
+    if cur:
+        chunks.append("\n\n".join(cur))
+    return chunks
+
+
 def analyze_document(text: str, units: list[dict], opts: dict) -> dict:
     if llm_enabled():
         try:
-            prompt = (
-                f"Below is a document. Find up to {opts['max_clips']} of the most valuable concepts that can each "
-                "become a standalone social post / carousel. Do NOT include start/end timestamps (use 0).\n"
-                f"{_prompt_common(opts)}\nReturn JSON in exactly this shape:\n{TOPIC_SCHEMA}\n\n"
-                "DOCUMENT:\n" + text[:45000])
-            data = ask_json(SYSTEM, prompt)
-            topics = [normalize_topic(t) for t in data.get("topics", []) if isinstance(t, dict)]
+            chunks = _text_chunks(text)
+            per_chunk = max(2, math.ceil(opts["max_clips"] * 1.5 / len(chunks)))
+            topics, summary, keywords = [], "", []
+            for chunk in chunks:
+                prompt = (
+                    f"Below is a document. Find up to {per_chunk} of the most valuable concepts that can each "
+                    "become a standalone social post / carousel. Follow the document's own headings and sections "
+                    "when it has them. Do NOT include start/end timestamps (use 0).\n"
+                    f"{_prompt_common(opts)}\nReturn JSON in exactly this shape:\n{TOPIC_SCHEMA}\n\n"
+                    "DOCUMENT:\n" + chunk)
+                data = ask_json(SYSTEM, prompt)
+                summary = summary or str(data.get("summary", ""))
+                keywords += [str(k) for k in data.get("keywords", [])]
+                topics += [normalize_topic(t) for t in data.get("topics", []) if isinstance(t, dict)]
             if topics:
-                return {"summary": str(data.get("summary", "")), "keywords": [str(k) for k in data.get("keywords", [])][:15],
+                _fill_keywords(topics, None, text)
+                return {"summary": summary, "keywords": list(dict.fromkeys(keywords))[:15],
                         "topics": topics, "provider": settings.llm_provider(), "warning": None}
             raise ValueError("LLM returned no topics")
         except Exception as e:
             log.exception("LLM document analysis failed, using heuristic fallback")
-            result = heuristic_analysis(units, opts, timed=False)
+            result = heuristic_analysis(units, opts, timed=False, text=text)
             result["warning"] = f"AI analysis failed ({type(e).__name__}); used the built-in keyword analyser instead."
             return result
-    return heuristic_analysis(units, opts, timed=False)
+    return heuristic_analysis(units, opts, timed=False, text=text)
 
 
 # ------------------------------------------------------------------ heuristic fallback (no API key)
-STOP = set("""a about above after again all also am an and any are as at be because been before being below between both
-but by can could did do does doing down during each few for from further get got had has have having he her here hers him
-his how i if in into is it its just let like me more most my no nor not now of off on once only or other our out over own
-really same she should so some such than that the their them then there these they this those through to too under until up
-very was we were what when where which while who why will with would you your yeah okay ok um uh going gonna want need
-today next first second thing things one two three say said see look know right well make use used using""".split())
-
-TECH = set("""python variable variables function functions data type types integer float string boolean list tuple dictionary
-set loop loops class object objects oop array algorithm database sql api code program syntax operator conditional module
-library javascript react html css git machine learning model neural network recursion inheritance exception file""".split())
-
-CAPTIONS = {
-    "educational": "A quick, clear explanation of {t}. Save this for revision! 📚",
-    "genz": "{t}, but make it make sense ✨ no cap, this one's a lifesaver",
-    "professional": "A concise breakdown of {t} - practical insights you can apply today.",
-    "funny": "POV: you finally understand {t} 😭☕",
-}
-TITLES = ["{t} Explained Simply", "Understanding {t}", "{t} Made Easy", "Quick Guide to {t}", "{t}: What You Need to Know"]
+def heuristic_analysis(units: list[dict], opts: dict, timed: bool, text: str | None = None) -> dict:
+    """Built-in concept/keyword analyser (see services/topic_engine.py) - works offline, no API key."""
+    result = topic_engine.analyze(units, opts, timed, text=text)
+    result["topics"] = [normalize_topic(t) for t in result["topics"]]
+    return result
 
 
-def _tokens(text: str) -> list[str]:
-    return [w for w in re.findall(r"[a-zA-Z][a-zA-Z0-9_+#]{2,}", text.lower()) if w not in STOP]
-
-
-def _windows(units: list[dict], timed: bool, target: float) -> list[list[dict]]:
-    wins, cur, acc = [], [], 0.0
-    for u in units:
-        cur.append(u)
-        acc += (u["end"] - u["start"]) if timed else len(u["text"].split())
-        if acc >= target:
-            wins.append(cur)
-            cur, acc = [], 0.0
-    if cur:
-        if wins and acc < target * 0.4:
-            wins[-1].extend(cur)
+def _fill_keywords(topics: list[dict], segments: list[dict] | None, text: str | None) -> None:
+    """If the LLM returned thin keywords for a topic, add topic-specific ones from the lexicon / key-phrases."""
+    for t in topics:
+        if len(t["keywords"]) >= 4:
+            continue
+        if segments and t.get("start") is not None and t.get("end") is not None:
+            body = " ".join(s["text"] for s in segments if s["end"] > t["start"] and s["start"] < t["end"])
         else:
-            wins.append(cur)
-    return wins
-
-
-def _key_points(text: str, n: int = 3) -> list[str]:
-    sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if 25 <= len(s.strip()) <= 220]
-    sents = list(dict.fromkeys(sents))
-    return sorted(sents[:8], key=len, reverse=True)[:n] if sents else []
-
-
-def heuristic_analysis(units: list[dict], opts: dict, timed: bool) -> dict:
-    full = " ".join(u["text"] for u in units)
-    glob = collections.Counter(_tokens(full))
-    target = (opts["min_clip_seconds"] + opts["max_clip_seconds"]) / 2 if timed else 90
-    wins = _windows(units, timed, target)
-
-    def weight(term):
-        return 3 if term in TECH else 1
-
-    scored = []
-    for w in wins:
-        text = " ".join(u["text"] for u in w)
-        counts = collections.Counter(_tokens(text))
-        words = max(1, len(text.split()))
-        dens = sum(c * weight(t) for t, c in counts.items() if glob[t] >= 2) / words
-        best = max(counts, key=lambda t: counts[t] * weight(t) * (1 + math.log(1 + glob[t])), default="this topic")
-        scored.append((dens, best, w, text, counts))
-
-    max_d = max((s[0] for s in scored), default=1) or 1
-    tone = opts.get("tone", "educational")
-    topics = []
-    for i, (dens, term, w, text, counts) in enumerate(scored):
-        label = term.upper() if len(term) <= 3 else term.capitalize()
-        kws = [t for t, _ in counts.most_common(8) if glob[t] >= 2][:5]
-        first = next((s.strip() for s in re.split(r"(?<=[.!?])\s+", text) if len(s.strip()) > 20), text[:90])
-        topics.append({
-            "topic": label,
-            "title": TITLES[i % len(TITLES)].format(t=label),
-            "hook": f"Still confused about {label}? {'Watch this.' if timed else 'Read this.'}",
-            "caption": CAPTIONS.get(tone, CAPTIONS["educational"]).format(t=label),
-            "hashtags": [f"#{label}"] + [f"#{k}" for k in kws],
-            "keywords": kws,
-            "key_points": _key_points(text) or [first[:120]],
-            "importance": round(0.5 + 0.45 * (dens / max_d), 2),
-            "start": w[0]["start"] if timed else None,
-            "end": w[-1]["end"] if timed else None,
-        })
-    keywords = [t for t, _ in glob.most_common(40) if glob[t] >= 2]
-    keywords = sorted(keywords, key=lambda t: -(glob[t] * weight(t)))[:12]
-    summary = " ".join(re.split(r"(?<=[.!?])\s+", full)[:2])[:320]
-    return {"summary": summary, "keywords": keywords, "topics": topics, "provider": "heuristic", "warning": None}
+            body = f"{t['topic']}. {t['title']}. " + " ".join(t.get("key_points", []))
+        for k in topic_engine.suggest_keywords(body):
+            if k.lower() not in [x.lower() for x in t["keywords"]]:
+                t["keywords"].append(k)
+        t["keywords"] = t["keywords"][:8]

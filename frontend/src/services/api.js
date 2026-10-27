@@ -1,21 +1,19 @@
 const BASE = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 
-export const ACCEPT = ".mp4,.mov,.mkv,.webm,.mp3,.wav,.m4a,.pdf,.docx,.txt,.md";
+export const ACCEPT = ".mp4,.mov,.mkv,.webm,.pdf,.docx,.txt,.md";
 const KINDS = {
   mp4: "video", mov: "video", mkv: "video", webm: "video",
-  mp3: "audio", wav: "audio", m4a: "audio",
   pdf: "document", docx: "document", txt: "text", md: "text",
 };
 export const KIND_META = {
   video: { icon: "🎬", label: "Video" },
-  audio: { icon: "🎧", label: "Audio" },
   document: { icon: "📄", label: "Document" },
   text: { icon: "📝", label: "Text" },
 };
 
 export const detectKind = (name = "") => KINDS[name.split(".").pop().toLowerCase()] || null;
 export const mediaUrl = (p) => (p ? (p.startsWith("http") ? p : BASE + p) : null);
-export const isMedia = (kind) => kind === "video" || kind === "audio";
+export const isMedia = (kind) => kind === "video";
 
 export function fmtTime(sec) {
   if (sec == null) return "";

@@ -1,4 +1,4 @@
-"""The orchestrator:  input -> text/transcript -> LLM topics -> validated timestamps -> FFmpeg -> platform content."""
+"""The orchestrator (video + documents/text only):  input -> text/transcript -> LLM topics -> validated timestamps -> FFmpeg -> platform content."""
 import logging
 import re
 import threading
@@ -30,8 +30,6 @@ def _stage(job_id, stage, progress, message):
 
 def _steps(kind):
     steps = DOC_STEPS if kind in ("document", "text") else MEDIA_STEPS
-    if kind == "audio":
-        steps = [s for s in steps if s[0] != "scenes"]
     return [{"id": i, "label": l} for i, l in steps]
 
 
@@ -68,7 +66,7 @@ def _run(job_id: str, opts: dict) -> None:
 
     items, segments, duration = [], [], 0.0
 
-    if kind in ("video", "audio"):
+    if kind == "video":
         info = probe(src)
         duration = info["duration"]
         _stage(job_id, "extract", 5, "Pulling the audio track out…")
@@ -85,12 +83,11 @@ def _run(job_id: str, opts: dict) -> None:
         analysis = analyze_transcript(segments, opts)
 
         scenes = []
-        if kind == "video":
-            _stage(job_id, "scenes", 52, "Looking for slide changes and cuts…")
-            try:
-                scenes = cg.detect_scenes(src)
-            except Exception:
-                log.exception("Scene detection failed (continuing without it)")
+        _stage(job_id, "scenes", 52, "Looking for slide changes and cuts…")
+        try:
+            scenes = cg.detect_scenes(src)
+        except Exception:
+            log.exception("Scene detection failed (continuing without it)")
 
         topics = cg.validate_and_rank(analysis["topics"], segments, duration, scenes, opts)
         if not topics:
@@ -103,16 +100,12 @@ def _run(job_id: str, opts: dict) -> None:
             item["duration"] = round(t["end"] - t["start"], 1)
             base = Path("clips") / cid
             try:
-                if kind == "video":
-                    cg.make_thumbnail(src, out / base / "thumb.jpg", t["start"] + (t["end"] - t["start"]) / 3)
-                    item["thumbnail"] = url(f"{base}/thumb.jpg")
-                else:
-                    cg.cut_audio(src, out / base / "clip.mp3", t["start"], t["end"])
-                    item["audio"] = {"url": url(f"{base}/clip.mp3"), "download": dl(f"{base}/clip.mp3")}
+                cg.make_thumbnail(src, out / base / "thumb.jpg", t["start"] + (t["end"] - t["start"]) / 3)
+                item["thumbnail"] = url(f"{base}/thumb.jpg")
                 if cg.write_srt(segments, t["start"], t["end"], out / base / "captions.srt"):
                     item["srt"] = {"download": dl(f"{base}/captions.srt")}
             except Exception:
-                log.exception("Thumbnail/audio/srt failed for %s", cid)
+                log.exception("Thumbnail/srt failed for %s", cid)
 
             for pid in platforms:
                 spec = PLATFORMS[pid]
@@ -120,10 +113,7 @@ def _run(job_id: str, opts: dict) -> None:
                 entry = _platform_entry(spec, format_content(t, pid, opts["tone"]))
                 rel = f"{base}/{pid}.mp4"
                 try:
-                    if kind == "video":
-                        cg.cut_video(src, out / rel, t["start"], end, spec, info, opts["reframe"])
-                    else:
-                        cg.make_audiogram(src, out / rel, t["start"], end, spec)
+                    cg.cut_video(src, out / rel, t["start"], end, spec, info, opts["reframe"])
                     entry["media"] = {"url": url(rel), "download": dl(rel), "type": "video",
                                       "width": spec["width"], "height": spec["height"],
                                       "duration": round(end - t["start"], 1), "trimmed": end < t["end"]}
@@ -140,8 +130,10 @@ def _run(job_id: str, opts: dict) -> None:
         units = to_units(text)
         _stage(job_id, "analyze", 30, "Finding the concepts worth posting…")
         analysis = analyze_document(text, units, opts)
-        topics = [normalize_topic(t) for t in analysis["topics"]][: opts["max_clips"]]
-        topics.sort(key=lambda t: -t["importance"])
+        topics = [normalize_topic(t) for t in analysis["topics"]]
+        if len(topics) > opts["max_clips"]:          # keep the strongest topics, but in the order they appear
+            keep = sorted(sorted(range(len(topics)), key=lambda i: -topics[i]["importance"])[: opts["max_clips"]])
+            topics = [topics[i] for i in keep]
         _stage(job_id, "content", 65, "Writing posts and carousels…")
         for n, t in enumerate(topics):
             item = _base_item(f"c{n + 1}", t)
@@ -167,7 +159,7 @@ def _base_item(cid: str, t: dict) -> dict:
             "keywords": t.get("keywords", []), "key_points": t.get("key_points", []),
             "importance": round(t.get("importance", 0.5), 2), "score": t.get("score"),
             "start": t.get("start"), "end": t.get("end"), "duration": None,
-            "carousel": build_carousel(t), "thumbnail": None, "srt": None, "audio": None, "platforms": {}}
+            "carousel": build_carousel(t), "thumbnail": None, "srt": None, "platforms": {}}
 
 
 def _platform_entry(spec: dict, content: dict) -> dict:

@@ -1,4 +1,4 @@
-"""Audio extraction + speech-to-text with timestamps (faster-whisper)."""
+"""Audio-track extraction (from video) + speech-to-text with timestamps (faster-whisper)."""
 from pathlib import Path
 
 from config import settings
@@ -8,7 +8,7 @@ _model = None
 
 
 def extract_audio(src: Path, dst: Path) -> None:
-    """Any video/audio -> 16 kHz mono WAV (what Whisper likes best)."""
+    """A video's sound track -> 16 kHz mono WAV (what Whisper likes best)."""
     run_cmd([settings.FFMPEG_BIN, "-y", "-i", str(src), "-vn", "-ac", "1", "-ar", "16000",
              "-c:a", "pcm_s16le", str(dst)])
 

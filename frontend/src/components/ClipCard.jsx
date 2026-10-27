@@ -20,7 +20,7 @@ export default function ClipCard({ jobId, clip, index, kind, onSaved }) {
   const pids = Object.keys(clip.platforms);
   const [tab, setTab] = useState(pids[0]);
   const active = clip.platforms[tab];
-  const isMedia = kind === "video" || kind === "audio";
+  const isMedia = kind === "video";
   const media = active?.media;
   const pct = Math.round(clip.importance * 100);
 

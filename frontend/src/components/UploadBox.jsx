@@ -39,7 +39,7 @@ export default function UploadBox({ mode, setMode, onFile, url, setUrl }) {
           <h3>Drop your content here</h3>
           <p>or <u>browse your files</u></p>
           <div className="kinds">
-            <span>🎬 MP4 · MOV</span><span>🎧 MP3 · WAV</span><span>📄 PDF · DOCX</span><span>📝 TXT · MD</span>
+            <span>🎬 MP4 · MOV · MKV</span><span>📄 PDF · DOCX</span><span>📝 TXT · MD</span>
           </div>
         </div>
       ) : (
